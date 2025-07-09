@@ -22,7 +22,7 @@ Homestead.json
 /.vagrant
 .phpunit.result.cache
 
-/public/exported_files
+/public/exported_files/*
 /public/admin.php
 /laravel-echo-server.json
 /laravel-echo-server.lock
