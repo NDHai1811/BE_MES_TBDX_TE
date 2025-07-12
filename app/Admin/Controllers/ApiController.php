@@ -77,6 +77,8 @@ use App\Events\ProductionUpdated;
 use App\Models\InfoCongDoanPriority;
 use App\Models\ShiftAssignment;
 use App\Models\Supplier;
+use App\Models\Vehicle;
+use Carbon\CarbonPeriod;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use SebastianBergmann\CodeCoverage\Report\PHP;
@@ -445,7 +447,7 @@ class ApiController extends AdminController
     public function updateQuantityInfoCongDoan(Request $request)
     {
         $info = InfoCongDoan::find($request->id);
-        if(!$info){
+        if (!$info) {
             return $this->failure('', 'Không tìm thấy lô');
         }
         $sl_dau_ra_hang_loat = $request->sl_dau_ra_hang_loat;
@@ -481,21 +483,20 @@ class ApiController extends AdminController
             $tracking = Tracking::where('machine_id', $info->machine_id)->first();
             if ($tracking) {
                 $next_batch = InfoCongDoan::where('ngay_sx', date('Y-m-d'))->whereIn('status', [0, 1])
-                ->where('lo_sx', '!=', $info->lo_sx)
-                ->where('machine_id', $tracking->machine_id)
-                ->orderBy('updated_at', 'DESC')
-                ->orderBy('order_id')
-                ->first();
+                    ->where('lo_sx', '!=', $info->lo_sx)
+                    ->where('machine_id', $tracking->machine_id)
+                    ->orderBy('updated_at', 'DESC')
+                    ->orderBy('order_id')
+                    ->first();
                 $tracking->update([
                     'lo_sx' => $next_batch->lo_sx ?? null,
                     'so_ra' => $next_batch->so_ra ?? 0,
                     'thu_tu_uu_tien' => $next_batch->thu_tu_uu_tien ?? 0,
                     'sl_kh' => $next_batch->dinh_muc ?? 0,
                 ]);
-                if($next_batch){
-                    $next_batch->update(['status'=>1]);
+                if ($next_batch) {
+                    $next_batch->update(['status' => 1]);
                 }
-                
             }
         }
 
@@ -523,13 +524,13 @@ class ApiController extends AdminController
     function updateSodu(Request $request)
     {
         $info = InfoCongDoan::find($request->info_id);
-        if(!$info){
+        if (!$info) {
             return $this->failure($request->info_id, 'Không tìm thấy lô');
         }
-        if(is_numeric($request->so_du)){
-            $info->update(['so_du'=>$request->so_du]);
+        if (is_numeric($request->so_du)) {
+            $info->update(['so_du' => $request->so_du]);
             return $this->success($request->all(), 'Đã cập nhật số dư');
-        }else{
+        } else {
             return $this->failure($request->info_id, 'Cập nhật không thành công');
         }
     }
@@ -552,9 +553,9 @@ class ApiController extends AdminController
                     if ($info_lo_sx) {
                         $current_quantity = $tracking->pre_counter + ($tracking->error_counter ?? 0);
                         $incoming_quantity = $request['Pre_Counter'] + ($request['Error_Counter'] ?? 0);
-                        if ($tracking->pre_counter > 0 && ($current_quantity > $incoming_quantity)) {   
+                        if ($tracking->pre_counter > 0 && ($current_quantity > $incoming_quantity)) {
                             $running_infos = InfoCongDoan::where('machine_id', $tracking->machine_id)->where('status', 1)->get();
-                            if(count($running_infos) > 0){
+                            if (count($running_infos) > 0) {
                                 foreach ($running_infos as $info) {
                                     $info->update([
                                         'status' => 2,
@@ -650,10 +651,10 @@ class ApiController extends AdminController
                 // DB::rollBack();
                 throw $th;
             }
-        }   
+        }
         $endTime = microtime(true);
         $timeTaken = $endTime - $startTime;
-        return (['machine_id'=>$tracking->machine_id,'timeTaken'=>$timeTaken, 'pre'=>$request['Pre_Counter'], 'set'=>$request['Set_Counter']]);
+        return (['machine_id' => $tracking->machine_id, 'timeTaken' => $timeTaken, 'pre' => $request['Pre_Counter'], 'set' => $request['Set_Counter']]);
     }
 
     protected function broadcastProductionUpdate($info_lo_sx, $so_ra, $reload = false)
@@ -676,7 +677,7 @@ class ApiController extends AdminController
         } else {
             //Tìm lô đang chạy
             $broadcast = [];
-            if($info_cong_doan_in){
+            if ($info_cong_doan_in) {
                 $next_batch = InfoCongDoan::where('ngay_sx', date('Y-m-d'))->whereIn('status', [0, 1])->where('lo_sx', '<>', $info_cong_doan_in->lo_sx)->where('machine_id', $tracking->machine_id)->orderBy('created_at', 'DESC')->first();
                 if ($next_batch) {
                     if (($request['Pre_Counter'] - $tracking->pre_counter)  >= $info_cong_doan_in->dinh_muc) {
@@ -731,7 +732,7 @@ class ApiController extends AdminController
                         $info_cong_doan_in->sl_ok = $info_cong_doan_in->sl_dau_ra_hang_loat - $info_cong_doan_in->sl_ng_sx - $info_cong_doan_in->sl_ng_qc;
                         $broadcast = ['info_cong_doan' => $info_cong_doan_in, 'reload' => false];
                     }
-                } 
+                }
             } else {
                 $tracking->update([
                     'lo_sx' => null,
@@ -744,7 +745,7 @@ class ApiController extends AdminController
                     'status' => 0
                 ]);
             }
-            
+
             broadcast(new ProductionUpdated($broadcast))->toOthers();
             return $broadcast;
         }
@@ -758,7 +759,7 @@ class ApiController extends AdminController
         $info_cong_doan_in = InfoCongDoan::where('machine_id', $machine->id)->where('lo_sx', $tracking->lo_sx)->first();
         //Tìm lô đang chạy
         $broadcast = [];
-        if($info_cong_doan_in){
+        if ($info_cong_doan_in) {
             try {
                 $next_batch = InfoCongDoan::whereIn('status', [0, 1])->where('lo_sx', '<>', $info_cong_doan_in->lo_sx)->where('machine_id', $tracking->machine_id)->orderBy('created_at', 'DESC')->first();
                 if ($next_batch) {
@@ -815,7 +816,7 @@ class ApiController extends AdminController
             } catch (\Throwable $th) {
                 throw $th;
             }
-        }else{
+        } else {
             $tracking->update([
                 'lo_sx' => null,
                 'sl_kh' => 0,
@@ -1960,7 +1961,7 @@ class ApiController extends AdminController
         try {
             DB::beginTransaction();
             $info_cong_doan = InfoCongDoan::where('machine_id', $input['machine_id'])->where('lo_sx', $input['lo_sx'])->first();
-            if(!$info_cong_doan) {
+            if (!$info_cong_doan) {
                 return $this->failure('', 'Không tìm thấy lô sản xuất');
             }
             $lsx_log = QCLog::where('machine_id', $input['machine_id'])->where('lo_sx', $input['lo_sx'])->first();
@@ -2026,7 +2027,7 @@ class ApiController extends AdminController
                     $phan_dinh = 1;
                 }
             }
-            if(isset($input['data']['phan_dinh'])) {
+            if (isset($input['data']['phan_dinh'])) {
                 $phan_dinh = $input['data']['phan_dinh'];
             }
             $log['phan_dinh'] = $phan_dinh;
@@ -2102,9 +2103,9 @@ class ApiController extends AdminController
         $input = $request->all();
         $customOrder = [0, 2, 1];
         $query = InfoCongDoan::where(function ($query) {
-                $query->where('status', '>=', 2)
-                    ->orWhere('status', 1)->where('sl_dau_ra_hang_loat', '>=', 100);
-            })
+            $query->where('status', '>=', 2)
+                ->orWhere('status', 1)->where('sl_dau_ra_hang_loat', '>=', 100);
+        })
             ->where('machine_id', $request->machine_id);
         if (isset($input['start_date']) && isset($input['end_date'])) {
             if ($request->machine_id === 'So01') {
@@ -2237,7 +2238,7 @@ class ApiController extends AdminController
                 break;
             }
         }
-        if(isset($input['data']['phan_dinh'])) {
+        if (isset($input['data']['phan_dinh'])) {
             $phan_dinh = $input['data']['phan_dinh'];
         }
         $log['phan_dinh'] = $phan_dinh;
@@ -2883,14 +2884,6 @@ class ApiController extends AdminController
             $start = Carbon::now()->startOfDay()->setTime(7, 0, 0);
             $end = Carbon::now()->endOfDay()->addHours(6);
         }
-        // return [$start, $end];
-        // $machine_iot = Machine::where('is_iot', 1)->whereIn('id', $request->machine)->pluck('id')->toArray();
-        // $query->whereRaw("
-        //     CASE 
-        //         WHEN machine_id IN ('" . implode("','", $machine_iot) . "') THEN DATE(thoi_gian_bat_dau) BETWEEN ? AND ?
-        //         ELSE DATE(created_at) BETWEEN ? AND ?
-        //     END
-        // ", [$start, $end, $start, $end]);
         $query->where('thoi_gian_bat_dau', '>=', $start)->where('thoi_gian_bat_dau', '<=', $end);
         // return $query;
         $query->whereHas('order', function ($order_query) use ($request) {
@@ -2944,9 +2937,9 @@ class ApiController extends AdminController
             // $obj->quy_cach = $order ? (!$order->kich_thuoc ? ($order->length . 'x' . $order->width . ($order->height ? ('x' . $order->height) : $order->kich_thuoc)) : "") : "";
             $obj->sl_dau_vao_kh = $order->sl ?? "";
             $obj->sl_dau_ra_kh = $order->sl ?? "";
-            if($info_cong_doan->machine_id === 'So01'){
+            if ($info_cong_doan->machine_id === 'So01') {
                 $obj->sl_ok = $info_cong_doan->sl_dau_ra_hang_loat;
-            }else{
+            } else {
                 $obj->sl_ok = $info_cong_doan->sl_dau_ra_hang_loat - $info_cong_doan->sl_ng_qc - $info_cong_doan->sl_ng_sx;
             }
             $obj->sl_phe = $info_cong_doan->sl_ng_qc + $info_cong_doan->sl_ng_sx;
@@ -4093,13 +4086,13 @@ class ApiController extends AdminController
         if (!$info) {
             return $this->failure([], 'Lô chưa được quét vào sản xuất');
         }
-        if($info->status <= 1){
+        if ($info->status <= 1) {
             return $this->failure([], 'Lô ' . $info->lo_sx . ' chưa sản xuất xong');
         }
         if ($info->step !== 0) {
             return $this->failure([], 'Lô ' . $info->lo_sx . ' chưa sẵn sàng nhập kho');
         }
-        if(!$info->machine || !($info->machine->line_id == '32' || $info->machine->line_id == '33')){
+        if (!$info->machine || !($info->machine->line_id == '32' || $info->machine->line_id == '33')) {
             return $this->failure([], 'Công đoạn cuối không phải Dán hoặc Xả lót, chưa thể nhập kho');
         }
         $previousQCLog = QCLog::where('lo_sx', $request->lo_sx)->orderBy('updated_at', 'DESC')->first();
@@ -4169,9 +4162,9 @@ class ApiController extends AdminController
                 $inp['lo_sx'] = $value['lo_sx'];
                 $inp['pallet_id'] = $input['id'];
                 $inp['so_luong'] = $value['so_luong'];
-                if(in_array($info->machine_id, $machine_dan)){
+                if (in_array($info->machine_id, $machine_dan)) {
                     $inp['type'] = LSXPallet::DAN;
-                }else if(in_array($info->machine_id, $machine_xa_lot)){
+                } else if (in_array($info->machine_id, $machine_xa_lot)) {
                     $inp['type'] = LSXPallet::XA_LOT;
                 }
                 $so_luong += $value['so_luong'];
@@ -4266,15 +4259,13 @@ class ApiController extends AdminController
         if (isset($request->start_date) && isset($request->end_date)) {
             $delivery_query->whereDate('created_at', '>=', date('Y-m-d', strtotime($request->start_date)))->whereDate('created_at', '<=', date('Y-m-d', strtotime($request->end_date)));
         }
-        // if (isset($request->delivery_note_id)) {
-        //     $delivery_query->where('id', $request->delivery_note_id);
-        // }
         $delivery_query->whereHas('exporters', function ($q) use ($request) {
             if ($request->user()->username !== 'admin' && $request->user()->username !== 'vodanh') {
                 $q->where('admin_user_id', $request->user()->id);
             }
         });
-        $delivery_notes = $delivery_query->get();
+        $delivery_notes = $delivery_query->with('vehicle')->get();
+        $vehicles = $delivery_notes->pluck('vehicle')->unique()->values();
         $query = WareHouseFGExport::whereIn('delivery_note_id', $delivery_notes->pluck('id')->toArray());
         if (isset($request->start_date) && isset($request->end_date)) {
             $query->whereDate('ngay_xuat', '>=', date('Y-m-d', strtotime($request->start_date)))->whereDate('ngay_xuat', '<=', date('Y-m-d', strtotime($request->end_date)));
@@ -4284,61 +4275,68 @@ class ApiController extends AdminController
         if (isset($request->delivery_note_id)) {
             $query->where('delivery_note_id', $request->delivery_note_id);
         }
-        $fg_exports = $query->orderBy('created_at', 'DESC')->with([
-            'warehouse_fg_log' => function ($subQuery) {
-                $subQuery->where('type', 2);
-            },
-            // 'lsxpallets'=> function ($subQuery) {
-            //     $subQuery->where('remain_quantity', '>', 0);
-            // }
-        ])->get();
+        if (isset($request->vehicle_id)) {
+            $query->whereHas('delivery_note', function ($q) use ($request) {
+                $q->where('vehicle_id', $request->vehicle_id);
+            });
+        }
+        $fg_exports = $query->orderBy('created_at', 'DESC')->with(['lsxpallets'])->with('delivery_note')->get()->sortBy('delivery_note_id', SORT_NATURAL)->values();
         $data = [];
         $lsx_array = [];
         $test = [];
         if (count($fg_exports) > 0) {
             foreach ($fg_exports as $key => $fg_export) {
-                $lsx_pallets = LSXPallet::with(['warehouseFGLog' => function ($logQuery) {
-                    $logQuery->where('type', 1);
-                }])
-                ->where('remain_quantity', '>', 0)
-                ->where('order_id', $fg_export->order_id)
-                ->get();
-                $so_luong_da_xuat = $fg_export->warehouse_fg_log->sum('so_luong');
+                // $lsx_pallets = LSXPallet::where('order_id', $fg_export->order_id)->get();
+                // $so_luong_da_xuat = $fg_export->warehouse_fg_log->sum(function ($log) {
+                //     return $log->type === 2 ? $log->so_luong : 0;
+                // });
                 // $test[] = [$fg_export->id, $lsx_pallets, $so_luong_da_xuat];
-                $sum_sl = 0;
-                $sl_can_xuat = $fg_export->so_luong - $so_luong_da_xuat;
-                foreach ($lsx_pallets as $lsx_pallet) {
-                    if ($sum_sl < $sl_can_xuat && $lsx_pallet->remain_quantity > 0) {
-                        if (in_array($lsx_pallet->lo_sx, $lsx_array)) {
-                            continue;
-                        }
-                        $lsx_array[] = $lsx_pallet->lo_sx;
-                        $khach_hang = $lsx_pallet->customer_id ?? "";
-                        $data[$lsx_pallet->pallet_id]['pallet_id'] = $lsx_pallet->pallet_id;
-                        $data[$lsx_pallet->pallet_id]['locator_id'] = $lsx_pallet->warehouseFGLog[0]->locator_id ?? "";
-                        $data[$lsx_pallet->pallet_id]['so_luong'] = $lsx_pallet->pallet->so_luong ?? 0;
-                        $data[$lsx_pallet->pallet_id]['thoi_gian_xuat'] = date('d/m/Y H:i:s', strtotime($fg_export->ngay_xuat));
-                        $data[$lsx_pallet->pallet_id]['khach_hang'] = $khach_hang;
-                        $data[$lsx_pallet->pallet_id]['delivery_note_id'] = $fg_export->delivery_note_id;
-                        if (!isset($data[$lsx_pallet->pallet_id]['lo_sx'])) $data[$lsx_pallet->pallet_id]['lo_sx'] = [];
-                        $data[$lsx_pallet->pallet_id]['lo_sx'][] = [
-                            'lo_sx' => $lsx_pallet->lo_sx,
-                            'so_luong' => $lsx_pallet->remain_quantity,
-                            'mql' => $lsx_pallet->mql,
-                            'mdh' => $lsx_pallet->mdh,
-                            'khach_hang' => $khach_hang,
-                            'pallet_id' => $lsx_pallet->pallet_id,
-                            'delivery_note_id' => $fg_export->delivery_note_id
-                        ];
-                        $sum_sl += $lsx_pallet->so_luong;
-                    } else {
-                        continue;
-                    }
-                }
+                // $sum_sl = 0;
+                // $sl_can_xuat = $fg_export->so_luong - $so_luong_da_xuat;
+                $fg_export->thoi_gian_xuat = date('d/m/Y H:i:s', strtotime($fg_export->ngay_xuat));
+                $fg_export->vehicle_id = $fg_export->delivery_note->vehicle_id ?? "";
+                // $fg_export->lo_sx = $fg_export->lsxpallets;
+                $fg_export->so_luong_con_lai = $fg_export->lsxpallets->sum('remain_quantity');
+                // foreach ($lsx_pallets as $lsx_pallet) {
+                //     if ($sum_sl < $sl_can_xuat) {
+                //         // if (in_array($lsx_pallet->lo_sx, $lsx_array)) {
+                //         //     continue;
+                //         // }
+                //         $lsx_array[] = $lsx_pallet->lo_sx;
+                //         $khach_hang = $lsx_pallet->customer_id ?? "";
+                //         $data[$lsx_pallet->pallet_id]['pallet_id'] = $lsx_pallet->pallet_id;
+                //         // $data[$lsx_pallet->pallet_id]['locator_id'] = $lsx_pallet->warehouseFGLog[0]->locator_id ?? "";
+                //         $data[$lsx_pallet->pallet_id]['so_luong'] = $lsx_pallet->pallet->so_luong ?? 0;
+                //         if (isset($data[$lsx_pallet->pallet_id]['so_luong_con_lai'])) {
+                //             $data[$lsx_pallet->pallet_id]['so_luong_con_lai'] += $lsx_pallet->remain_quantity;
+                //         } else {
+                //             $data[$lsx_pallet->pallet_id]['so_luong_con_lai'] = $lsx_pallet->remain_quantity;
+                //         }
+                //         $data[$lsx_pallet->pallet_id]['thoi_gian_xuat'] = date('d/m/Y H:i:s', strtotime($fg_export->ngay_xuat));
+                //         $data[$lsx_pallet->pallet_id]['khach_hang'] = $khach_hang;
+                //         $data[$lsx_pallet->pallet_id]['delivery_note_id'] = $fg_export->delivery_note_id;
+                //         $data[$lsx_pallet->pallet_id]['vehicle_id'] = $fg_export->delivery_note->vehicle_id ?? "";
+                //         $data[$lsx_pallet->pallet_id]['order_id'] = $fg_export->order_id ?? "";
+                //         if (!isset($data[$lsx_pallet->pallet_id]['lo_sx'])) $data[$lsx_pallet->pallet_id]['lo_sx'] = [];
+                //         $data[$lsx_pallet->pallet_id]['lo_sx'][] = [
+                //             'lo_sx' => $lsx_pallet->lo_sx,
+                //             'so_luong_ban_dau' => $lsx_pallet->so_luong,
+                //             'so_luong' => $lsx_pallet->remain_quantity,
+                //             'mql' => $lsx_pallet->mql,
+                //             'mdh' => $lsx_pallet->mdh,
+                //             'khach_hang' => $khach_hang,
+                //             'pallet_id' => $lsx_pallet->pallet_id,
+                //             'delivery_note_id' => $fg_export->delivery_note_id
+                //         ];
+                //         $sum_sl += $lsx_pallet->so_luong;
+                //     } else {
+                //         continue;
+                //     }
+                // }
             }
         }
         // return $test;
-        return $this->success(['data' => array_values($data), 'delivery_notes' => $delivery_notes]);
+        return $this->success(['data' => $fg_exports, 'delivery_notes' => $delivery_notes, 'vehicles' => $vehicles]);
     }
 
     public function checkLoSXPallet(Request $request)
@@ -4386,7 +4384,7 @@ class ApiController extends AdminController
                 }
                 if ($lsx_pallet) {
                     $remain = ($lsx_pallet->remain_quantity - $lo['so_luong']);
-                    $lsx_pallet->update(['remain_quantity' => $remain > 0 ? $remain : 0, 'status'=> LSXPallet::EXPORTED]);
+                    $lsx_pallet->update(['remain_quantity' => $remain > 0 ? $remain : 0, 'status' => LSXPallet::EXPORTED]);
                 }
             }
             $pallet_quantity = LSXPallet::where('pallet_id', $input[0]['pallet_id'])->sum('remain_quantity');
@@ -4727,7 +4725,7 @@ class ApiController extends AdminController
                 $inp['nhap_du'] = $this->calculateNhapDu($lsx->so_luong, $lsx->order_id);
                 $inp['lsx_pallet_id'] = $lsx->id;
                 WarehouseFGLog::create($inp);
-                $lsx->update(['remain_quantity' => $lsx->so_luong, 'status'=> LSXPallet::IMPORTED]);
+                $lsx->update(['remain_quantity' => $lsx->so_luong, 'status' => LSXPallet::IMPORTED]);
             }
             DB::commit();
         } catch (\Throwable $th) {
@@ -4781,11 +4779,11 @@ class ApiController extends AdminController
                 $material = Material::find($reimport_data['material_id']);
                 if ($material) {
                     $log = WarehouseMLTLog::where('material_id', $reimport_data['material_id'])->orderBy('tg_nhap', 'DESC')->first();
-                    if($log){
-                        if(!$log->tg_xuat){
+                    if ($log) {
+                        if (!$log->tg_xuat) {
                             return $this->failure($material, 'NVL chưa được xuất');
                         }
-                        if($reimport_data['so_kg'] > $log->so_kg_nhap){
+                        if ($reimport_data['so_kg'] > $log->so_kg_nhap) {
                             return $this->failure($material, 'Số ký nhập lại không được lớn hơn số ký đầu');
                         }
                     }
@@ -5970,22 +5968,22 @@ class ApiController extends AdminController
             }
         }
         if (isset($request->dot) && !empty($request->dot)) {
-            $query->where('dot', 'like', '%'.$request->dot.'%');
+            $query->where('dot', 'like', '%' . $request->dot . '%');
         }
         if (isset($request->po) && !empty($request->po)) {
-            $query->where('po', 'like', '%'.$request->po.'%');
+            $query->where('po', 'like', '%' . $request->po . '%');
         }
         if (isset($request->kich_thuoc) && !empty($request->kich_thuoc)) {
             $query->where(function ($custom_query) use ($request) {
-                $custom_query->where('kich_thuoc', 'like', '%'.$request->kich_thuoc.'%')
-                ->orWhere('kich_thuoc_chuan', 'like', '%'.$request->kich_thuoc.'%');
+                $custom_query->where('kich_thuoc', 'like', '%' . $request->kich_thuoc . '%')
+                    ->orWhere('kich_thuoc_chuan', 'like', '%' . $request->kich_thuoc . '%');
             });
         }
         if (isset($request->layout_type) && !empty($request->layout_type)) {
-            $query->where('layout_type', 'like', '%'.$request->layout_type.'%');
+            $query->where('layout_type', 'like', '%' . $request->layout_type . '%');
         }
         if (isset($request->layout_id) && !empty($request->layout_id)) {
-            $query->where('layout_id', 'like', '%'.$request->layout_id.'%');
+            $query->where('layout_id', 'like', '%' . $request->layout_id . '%');
         }
         $machine = Machine::find($request->machine_id);
         if (!$machine) {
@@ -5993,28 +5991,23 @@ class ApiController extends AdminController
         }
         $line_id = $machine->line_id;
         $orders = [];
+        // Lấy danh sách order_id đã có trong GroupPlanOrder để loại trừ
+        $excludedOrderIds = GroupPlanOrder::pluck('order_id')->toArray();
+        
         switch ($line_id) {
             case Line::LINE_SONG:
-                if (isset($request->start_date) && isset($request->end_date)) {
-                    $query->whereDate('han_giao_sx', '>=', date('Y-m-d', strtotime($request->start_date)))->whereDate('han_giao_sx', '<=', date('Y-m-d', strtotime($request->end_date)));
-                }
-                $group_order = GroupPlanOrder::pluck('order_id')->toArray();
-                $orders_array = array_flip($group_order);
-                $query->whereNotNull(['dai', 'rong']);
-                $orders = $query->with('buyer')->has('buyer')->get()->filter(function ($value) use ($orders_array) {
-                    return !isset($orders_array[$value->id]);
-                });
-                break;
             case Line::LINE_XA_LOT:
+                // Thêm điều kiện ngày tháng nếu có
                 if (isset($request->start_date) && isset($request->end_date)) {
-                    $query->whereDate('han_giao_sx', '>=', date('Y-m-d', strtotime($request->start_date)))->whereDate('han_giao_sx', '<=', date('Y-m-d', strtotime($request->end_date)));
+                    $query->whereDate('han_giao_sx', '>=', date('Y-m-d', strtotime($request->start_date)))
+                          ->whereDate('han_giao_sx', '<=', date('Y-m-d', strtotime($request->end_date)));
                 }
-                $group_order = GroupPlanOrder::pluck('order_id')->toArray();
-                $orders_array = array_flip($group_order);
-                $query->whereNotNull(['dai', 'rong']);
-                $orders = $query->with('buyer')->get()->filter(function ($value) use ($orders_array) {
-                    return !isset($orders_array[$value->id]);
-                });
+                
+                // Loại trừ các order đã có trong GroupPlanOrder và chỉ lấy những order có buyer
+                $query->whereNotNull(['dai', 'rong'])
+                      ->whereNotIn('id', $excludedOrderIds)
+                      ->has('buyer');
+                
                 break;
             default:
                 $plans = ProductionPlan::whereDate('ngay_sx', '>=', date('Y-m-d', strtotime($request->start_date)))->whereDate('ngay_sx', '<=', date('Y-m-d', strtotime($request->end_date)))
@@ -6028,10 +6021,13 @@ class ApiController extends AdminController
                             $q->where('line_id', $line_id);
                         });
                     }], 'sl_kh');
-                $orders = $query->with('buyer')->get();
                 break;
         }
-        // $orders = $query->with('buyer')->get();
+        $count = $query->count();
+        if(isset($request->page) && isset($request->pageSize)){
+            $query->offset(($request->page - 1) * $request->pageSize)->limit($request->pageSize);
+        }
+        $orders = $query->with('buyer')->get();
         $data = [];
         foreach ($orders as $key => $order) {
             $order->khach_hang = $order->short_name ?? '';
@@ -6043,7 +6039,7 @@ class ApiController extends AdminController
             }
             $data[] = $order;
         }
-        return $this->success($data);
+        return $this->success(['data' => $data, 'total' => $count]);
     }
 
     public function  handleOrder(Request $request)
@@ -6062,7 +6058,7 @@ class ApiController extends AdminController
             default:
                 $prefix = $date;
         }
-        $plan = ProductionPlan::where('machine_id', $input['machine_id'])->where('lo_sx', 'like', $prefix . "%")->orderBy('lo_sx', 'DESC')->first();
+        $plan = ProductionPlan::where('lo_sx', 'like', $prefix . "%")->orderBy('lo_sx', 'DESC')->first();
         $index = '';
         $thu_tu_uu_tien = 1;
         if ($plan) {
@@ -8163,16 +8159,184 @@ class ApiController extends AdminController
         return $this->success($href);
     }
 
-    function getQCdetailHistory(Request $request){
+    function getQCdetailHistory(Request $request)
+    {
         $info = InfoCongDoan::where('id', $request->info_id)->first();
-        if(!$info){
+        if (!$info) {
             return $this->failure(null, 'Không tìm thấy lô');
         }
         $qc_log = QCLog::where('lo_sx', $info->lo_sx)->where('machine_id', $info->machine_id)->first();
-        if(!$qc_log){
+        if (!$qc_log) {
             return $this->failure(null, 'Không tìm thấy lịch sử QC');
         }
         return $this->success($qc_log);
+    }
+
+    public function exportPQCHistory(Request $request)
+    {
+        ini_set('max_execution_time', 0);
+        ini_set('memory_limit', '1024M');
+        $centerStyle = [
+            'alignment' => [
+                'vertical' => \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER,
+                'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER,
+                'wrapText' => true
+            ],
+            'borders' => array(
+                'outline' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
+                    'color' => array('argb' => '000000'),
+                ),
+            ),
+        ];
+        $headerStyle = array_merge($centerStyle, [
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => array('argb' => 'BFBFBF')
+            ]
+        ]);
+        $titleStyle = array_merge($centerStyle, [
+            'font' => ['size' => 16, 'bold' => true],
+        ]);
+        $border = [
+            'borders' => array(
+                'allBorders' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
+                    'color' => array('argb' => '000000'),
+                ),
+            ),
+        ];
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet_index = 0;
+        $query = $this->queryQuality($request);
+        $groupedInfos = $query->with("plan", "machine", 'tem', 'qc_log')->get()->groupBy(function ($item) {
+            return $item->machine->line_id;
+        });
+        foreach ($groupedInfos as $line_id => $infos) {
+            $line = Line::find($line_id);
+            $sheet = $spreadsheet->getSheet($sheet_index);
+            $sheet->setTitle($line->name);
+            $start_row = 2;
+            $start_col = 1;
+            $data = [];
+            $defaultHeader = [
+                'STT',
+                'Lô SX',
+                'Ngày SX',
+                'QC kiểm tra',
+                "Máy",
+                'Mã máy',
+                'Khách hàng',
+                "MĐH",
+                "Kích thước chuẩn",
+                "MQL",
+                "Sản lượng đếm được",
+                'Sản lượng sau QC',
+                "Số phế",
+                "Tỷ lệ phế",
+                "KQ kiểm tra tính năng",
+                'KQ kiểm tra ngoại quan',
+                'Phán định',
+            ];
+            $qc_history = $infos->pluck('qc_log')->filter()->pluck('info')->toArray();
+            $tinh_nang = array_column($qc_history, 'tinh_nang');
+            $ngoai_quan = array_column($qc_history, 'ngoai_quan');
+            $tinh_nang = array_unique(array_column(array_merge(...$tinh_nang), 'id'));
+            $ngoai_quan = array_unique(array_column(array_merge(...$ngoai_quan), 'id'));
+            $tinh_nang = TestCriteria::whereIn('id', $tinh_nang)->orderBy('id')->get();
+            $ngoai_quan = TestCriteria::whereIn('id', $ngoai_quan)->orderBy('id')->get();
+            
+            if (count($tinh_nang) === 0) {
+                $defaultHeader['Tính năng'] = [''];
+            }else {
+                $defaultHeader['Tính năng'] = $tinh_nang->pluck('name')->toArray();
+            }
+            if (count($ngoai_quan) === 0) {
+                $defaultHeader['Ngoại quan'] = [''];
+            }else {
+                $defaultHeader['Ngoại quan'] = $ngoai_quan->pluck('name')->toArray();
+            }
+            foreach ($infos as $key => $item) {
+                $row = [];
+                $row['STT'] = $key + 1;
+                $row['Lô SX'] = $item->lo_sx;
+                $row['Ngày SX'] = $item->created_at->format('d/m/Y');
+                $row['QC kiểm tra'] = $item->qc_log->info['user_name'] ?? '';
+                $row['Máy'] = $item->machine->name ?? '';
+                $row['Mã máy'] = $item->machine_id ?? '';
+                $row['Khách hàng'] = $item->order->short_name ?? '';
+                $row['MĐH'] = $item->order->mdh ?? '';
+                $row['Kích thước chuẩn'] = $item->order ? ($item->order->dai . 'x' . $item->order->rong . ($item->order->cao ? 'x' . $item->order->cao : "")) : '';
+                $row['MQL'] = $item->order->mql ?? '';
+                $row['Sản lượng đếm được'] = $item->sl_dau_ra_hang_loat;
+                $row['Sản lượng sau QC'] = $item->sl_dau_ra_hang_loat - $item->sl_ng_qc - $item->sl_ng_sx;
+                $row['Số phế'] = $item->sl_ng_qc + $item->sl_ng_sx;
+                $row['Tỷ lệ phế'] = ($item->sl_dau_ra_hang_loat ? floor($row['Số phế'] / $item->sl_dau_ra_hang_loat * 100) : 0) . '%';
+                $row['KQ kiểm tra tính năng'] = $item->sl_tinh_nang ?? '';
+                $row['KQ kiểm tra ngoại quan'] = $item->sl_ngoai_quan ?? '';
+                $row['Phán định'] = $item->phan_dinh === 1 ? "OK" : ($item->phan_dinh === 2 ? "NG" : "pass");
+                if (count($tinh_nang) === 0) {
+                    $row['Tính năng'] = '';
+                }else{
+                    foreach ($tinh_nang as $test_criteria) {
+                        $row[$test_criteria->name] = collect($item->qc_log->info['tinh_nang'] ?? [])->firstWhere('id', $test_criteria->id)['value'] ?? '';
+                    }
+                }
+                if (count($ngoai_quan) === 0) {   
+                    $row['Ngoại quan'] = '';
+                } else {
+                    foreach ($ngoai_quan as $test_criteria) {
+                        $row[$test_criteria->name] = collect($item->qc_log->info['ngoai_quan'] ?? [])->firstWhere('id', $test_criteria->id)['value'] ?? '';
+                    }
+                }
+                $data[] = $row;
+            }
+            // return $data;
+            // $header[] = 'Đánh giá';
+            // $table_key[$this->num_to_letters(22 + $index)] = 'evaluate';
+            foreach ($defaultHeader as $key => $cell) {
+                if (!is_array($cell)) {
+                    $sheet->setCellValue([$start_col, $start_row], $cell)->mergeCells([$start_col, $start_row, $start_col, $start_row + 1])->getStyle([$start_col, $start_row, $start_col, $start_row + 1])->applyFromArray($headerStyle);
+                } else {
+                    if (count($cell) > 0) {
+                        $style = array_merge($headerStyle, array('fill' => [
+                            'fillType' => Fill::FILL_SOLID,
+                            'startColor' => array('argb' => 'EBF1DE')
+                        ]));
+                        $sheet->setCellValue([$start_col, $start_row], $key)->mergeCells([$start_col, $start_row, $start_col + count($cell) - 1, $start_row])->getStyle([$start_col, $start_row, $start_col + count($cell) - 1, $start_row])->applyFromArray($style);
+                        foreach ($cell as $val) {
+                            $sheet->setCellValue([$start_col, $start_row + 1], $val)->getStyle([$start_col, $start_row + 1])->applyFromArray($style);
+                            $start_col += 1;
+                        }
+                    }
+                    continue;
+                }
+                $start_col += 1;
+            }
+            $sheet->fromArray($data, null, 'A4', true);
+            $sheet->setCellValue([1, 1], 'BẢNG KIỂM TRA CHẤT LƯỢNG CÔNG ĐOẠN ' . mb_strtoupper($line->name))->mergeCells([1, 1, $start_col - 1, 1])->getStyle([1, 1, $start_col - 1, 1])->applyFromArray($titleStyle);
+            $sheet->getRowDimension(1)->setRowHeight(40);
+            foreach ($sheet->getColumnIterator() as $column) {
+                $sheet->getStyle($column->getColumnIndex() . ($start_row + 2) . ':' . $column->getColumnIndex() . (count($data) + 3))->applyFromArray(array_merge($centerStyle, $border));
+                $sheet->getColumnDimension($column->getColumnIndex())->setAutoSize(true);
+            }
+            if ($sheet_index < count($groupedInfos) - 1) {
+                $spreadsheet->createSheet();
+                $sheet_index += 1;
+            }
+        }
+
+        header("Content-Description: File Transfer");
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment;filename="Chi tiết QC.xlsx"');
+        header('Cache-Control: max-age=0');
+        header("Content-Transfer-Encoding: binary");
+        header('Expires: 0');
+        $writer =  new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('exported_files/Chi tiết QC.xlsx');
+        $href = '/exported_files/Chi tiết QC.xlsx';
+        return $this->success($href);
     }
     //End UI
 
@@ -8269,7 +8433,7 @@ class ApiController extends AdminController
             });
         }
         if (isset($input['material_id'])) {
-            $query->where('warehouse_mlt_logs.material_id', 'like', "%".$input['material_id']."%");
+            $query->where('warehouse_mlt_logs.material_id', 'like', "%" . $input['material_id'] . "%");
         }
         // Lấy tg_xuat của bản ghi xuất mới nhất cho mỗi material_id
         $query->leftJoinSub(
@@ -8310,17 +8474,17 @@ class ApiController extends AdminController
             $tg_xuat = $record->latest_tg_xuat;
             //Lấy bản ghi nhập mới nhất của NVL
             $lastImportLog = WarehouseMLTLog::where('material_id', $record->material_id)->orderBy('tg_nhap', 'DESC')->first();
-            if(!$lastImportLog->tg_xuat){
+            if (!$lastImportLog->tg_xuat) {
                 //Nếu bản ghi nhập mới nhất chưa có xuất thì tìm bản ghi xuất mới nhất
                 $lastExportLog = WarehouseMLTLog::whereNotNull('tg_xuat')->where('material_id', $record->material_id)->orderBy('tg_nhap', 'DESC')->first();
-                if($lastExportLog){
+                if ($lastExportLog) {
                     //Nếu có bản ghi xuất lấy số lượng nhập cuối cùng là của bản ghi có nhập xuất mới nhất
                     $so_kg_nhap = $lastExportLog->so_kg_nhap;
                     $tg_xuat = $lastExportLog->tg_xuat;
                 }
                 //Nếu ko có bản ghi xuất mới nhất thì số kg đầu giữ nguyên, số kg cuối = số kg nhập
                 $so_kg_cuoi = $lastImportLog->so_kg_nhap;
-            }else{
+            } else {
                 // $so_kg_cuoi = $lastImportLog->so_kg_nhap;
                 $so_kg_nhap = $lastImportLog->so_kg_nhap;
             }
@@ -8356,17 +8520,17 @@ class ApiController extends AdminController
             $tg_xuat = $record->latest_tg_xuat;
             //Lấy bản ghi nhập mới nhất của NVL
             $lastImportLog = WarehouseMLTLog::where('material_id', $record->material_id)->orderBy('tg_nhap', 'DESC')->first();
-            if(!$lastImportLog->tg_xuat){
+            if (!$lastImportLog->tg_xuat) {
                 //Nếu bản ghi nhập mới nhất chưa có xuất thì tìm bản ghi xuất mới nhất
                 $lastExportLog = WarehouseMLTLog::whereNotNull('tg_xuat')->where('material_id', $record->material_id)->orderBy('tg_nhap', 'DESC')->first();
-                if($lastExportLog){
+                if ($lastExportLog) {
                     //Nếu có bản ghi xuất lấy số lượng nhập cuối cùng là của bản ghi có nhập xuất mới nhất
                     $so_kg_nhap = $lastExportLog->so_kg_nhap;
                     $tg_xuat = $lastExportLog->tg_xuat;
                 }
                 //Nếu ko có bản ghi xuất mới nhất thì số kg đầu giữ nguyên, số kg cuối = số kg nhập
                 $so_kg_cuoi = $lastImportLog->so_kg_nhap;
-            }else{
+            } else {
                 $so_kg_nhap = $lastImportLog->so_kg_nhap;
             }
             $obj = new stdClass;
@@ -8503,7 +8667,7 @@ class ApiController extends AdminController
             $query->where('order_id', 'like', "%" . $input['order_id'] . "%");
         }
         if (!empty($input['khach_hang']) || !empty($input['mdh']) || !empty($input['mql']) || !empty($input['kich_thuoc']) || !empty($input['length']) || !empty($input['width']) || !empty($input['height'])) {
-            $query->whereHas('order', function($order_query)use($input){
+            $query->whereHas('order', function ($order_query) use ($input) {
                 if (isset($input['khach_hang'])) {
                     $order_query->where('short_name', $input['khach_hang']);
                 }
@@ -8577,7 +8741,8 @@ class ApiController extends AdminController
         return $this->success(['data' => $records, 'totalPage' => $totalPage]);
     }
 
-    function datediff($date1, $date2) {
+    function datediff($date1, $date2)
+    {
         $d1 = Carbon::parse($date1)->startOfDay();
         $d2 = Carbon::parse($date2)->startOfDay();
         return $d1->diffInDays($d2);
@@ -8769,7 +8934,7 @@ class ApiController extends AdminController
         $input = array_filter($input);
         $order_test = [];
         if (count($input) > 0) {
-            $query->whereHas('order', function($order_query)use($input){
+            $query->whereHas('order', function ($order_query) use ($input) {
                 if (isset($input['order_id'])) {
                     $order_query->where('id', 'like', "%" . $input['order_id'] . "%");
                 }

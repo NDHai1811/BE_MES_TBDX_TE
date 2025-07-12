@@ -461,6 +461,7 @@ Route::group([
     $router->get('quality/iqc-history', [ApiController::class, 'iqcHistory']);
     $router->get('quality/iqc-history/export', [ApiController::class, 'exportIQCHistory']);
     $router->get('quality/qc-history/detail', [ApiController::class, 'getQCdetailHistory']);
+    $router->get('quality/pqc-history/export', [ApiController::class, 'exportPQCHistory']);
 
     $router->get('equipment/performance', [ApiController::class, 'machinePerformance']);
     $router->get('equipment/error-machine-list', [ApiController::class, 'getErrorMachine']);
