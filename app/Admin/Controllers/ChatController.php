@@ -17,6 +17,7 @@ use App\Events\ChatMemberRemoved;
 use App\Events\ChatUpdated;
 use App\Events\MessageRecall;
 use App\Models\Attachment;
+use App\Models\ChatUser;
 use App\Models\CustomUser;
 use App\Notifications\NewMessageNotification;
 use App\Traits\API;
@@ -45,16 +46,22 @@ class ChatController extends Controller
                 'lastMessage.attachments',
                 'creator:id,name,avatar,username'
             ])
+            ->distinct('id')
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(function ($chat) use ($user, $readMap) {
+                $me = $user->id;
                 if ($chat->type === 'private') {
-                    // Tìm người chung phòng (không phải bản thân)
-                    $otherParticipant = $chat->participants->first(function ($participant) use ($user) {
-                        return $participant->id !== $user->id;
-                    });
-                    // Gán tên người chung phòng vào tên phòng
-                    $chat->name = $otherParticipant->name;
+                    if (count(array_unique($chat->participants->pluck('id')->toArray())) <= 1) {
+                        $chat->name = $chat->participants->first()->name ?? '';
+                    } else {
+                        // Tìm người chung phòng (không phải bản thân)
+                        $otherParticipant = $chat->participants->first(function ($participant) use ($me) {
+                            return $participant->id !== $me;
+                        });
+                        // Gán tên người chung phòng vào tên phòng
+                        $chat->name = $otherParticipant->name;
+                    }
                 }
                 if ($chat->lastMessage) {
                     $chat->timestamp = $chat->lastMessage->created_at;
@@ -99,25 +106,39 @@ class ChatController extends Controller
         $chat = DB::transaction(function () use ($data, $me) {
             // Private chat: lazy-create giữa A và B
             if ($data['type'] === 'private') {
-                [$a, $b] = $me < $data['recipient_id']
+                [$a, $b] = $me != $data['recipient_id']
                     ? [$me, $data['recipient_id']]
                     : [$data['recipient_id'], $me];
+                if ($me != $data['recipient_id']) {
+                    $existing = Chat::where('type', 'private')
+                        ->whereHas('participants', function ($q) use ($a, $b) {
+                            $q->whereIn('user_id', [$a, $b]);
+                        }, '=', 2)
+                        ->first();
 
-                $existing = Chat::where('type', 'private')
-                    ->whereHas('participants', function ($q) use ($a, $b) {
-                        $q->whereIn('user_id', [$a, $b]);
-                    }, '=', 2)
+                    if ($existing) {
+                        return $existing;
+                    }
+                } else {
+                    $existing = Chat::where('type', 'private')
+                    ->whereHas('participants', function($q) use ($me) {
+                        $q->where('user_id', $me);
+                    })
+                    ->withCount('participants')
+                    ->having('participants_count', '=', 1)
                     ->first();
-
-                if ($existing) {
-                    return $existing;
+                    Log::info($existing);
+                    if (isset($existing->chat)) {
+                        return $existing->chat;
+                    }
                 }
+
 
                 $chat = Chat::create([
                     'type'       => 'private',
                     'created_by' => $me,
                 ]);
-                $chat->participants()->attach([$a, $b]);
+                $chat->participants()->attach(array_unique([$a, $b]));
 
                 return $chat;
             }
@@ -142,12 +163,16 @@ class ChatController extends Controller
             'creator:id,name,avatar,username'
         ]);
         if ($chat->type === 'private') {
-            // Tìm người chung phòng (không phải bản thân)
-            $otherParticipant = $chat->participants->first(function ($participant) use ($me) {
-                return $participant->id !== $me;
-            });
-            // Gán tên người chung phòng vào tên phòng
-            $chat->name = $otherParticipant->name;
+            if (count(array_unique($chat->participants->pluck('id')->toArray())) <= 1) {
+                $chat->name = $chat->participants->first()->name ?? '';
+            } else {
+                // Tìm người chung phòng (không phải bản thân)
+                $otherParticipant = $chat->participants->first(function ($participant) use ($me) {
+                    return $participant->id !== $me;
+                });
+                // Gán tên người chung phòng vào tên phòng
+                $chat->name = $otherParticipant->name;
+            }
         }
         broadcast(new ChatUpdated($chat))->toOthers();
 
@@ -213,6 +238,7 @@ class ChatController extends Controller
         $chat->attachments()->delete();
         $chat->messages()->delete();
         $chat->participants()->detach();
+        broadcast(new ChatUpdated($chat))->toOthers();
         return $this->success([], 'Đã xoá chat');
     }
 
@@ -223,6 +249,7 @@ class ChatController extends Controller
             return $this->failure($chat_id, 'Không tìm thấy dữ liệu');
         }
         $chat->participants()->detach($request->user()->id);
+        broadcast(new ChatUpdated($chat))->toOthers();
         return $this->success([], 'Đã rời khỏi nhóm');
     }
 
@@ -366,7 +393,7 @@ class ChatController extends Controller
                     'file_type' => $file->getMimeType(),
                 ]);
             }
-            
+
             if (str_contains($file->getMimeType(), 'image/')) {
                 $message_type = 'image';
             } else {
@@ -548,14 +575,21 @@ class ChatController extends Controller
     public function files(Request $request, $chat_id)
     {
         $chat = Chat::find($chat_id);
+        if (!$chat) {
+            return $this->failure($chat_id, 'Không tìm thấy đoạn chat');
+        }
         // Lấy thẳng attachments của chat, DB chỉ scan table attachments và messages index
         $attachments_query = $chat->attachments()
             ->select(['attachments.id', 'message_id', 'file_path', 'file_name', 'file_type', 'attachments.created_at'])
             ->orderBy('created_at', 'desc');
 
-        $images = (clone $attachments_query)->where('file_type', 'like', 'image/%')->get();
+        $images = (clone $attachments_query)->whereHas('message', function ($q) {
+            $q->where('type', 'image');
+        })->get();
+        $files = (clone $attachments_query)->whereHas('message', function ($q) {
+            $q->where('type', 'file');
+        })->get();
         $links = (clone $attachments_query)->where('file_type', 'text/link')->get();
-        $files = (clone $attachments_query)->whereNotIn('file_type', ['text/link', 'image/png'])->get();
 
         $data = [
             'images' => $images,

@@ -48,7 +48,7 @@ class WarehouseFGLog extends Model
 
     public function order()
     {
-        return $this->hasOne(Order::class, 'id', 'order_id')->withTrashed();
+        return $this->belongsTo(Order::class);
     }
 
     public function warehouse_fg_export()
@@ -65,7 +65,7 @@ class WarehouseFGLog extends Model
     // Quan hệ để lấy bản ghi xuất (export) liên quan đến bản ghi nhập (import)
     public function exportRecord()
     {
-        return $this->hasMany(WarehouseFGLog::class, ['lo_sx', 'pallet_id'], ['lo_sx', 'pallet_id'])->where('type', 2)->orderBy('created_at', 'DESC'); // Bản ghi xuất
+        return $this->hasMany(WarehouseFGLog::class, 'lsx_pallet_id', 'lsx_pallet_id')->where('type', 2)->orderBy('created_at', 'DESC'); // Bản ghi xuất
     }
 
     public function lsx_pallet()

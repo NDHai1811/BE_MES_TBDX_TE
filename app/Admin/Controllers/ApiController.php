@@ -4264,6 +4264,9 @@ class ApiController extends AdminController
                 $q->where('admin_user_id', $request->user()->id);
             }
         });
+        if(isset($request->vehicle_id)){
+            $delivery_query->where('vehicle_id', $request->vehicle_id);
+        }
         $delivery_notes = $delivery_query->with('vehicle')->get();
         $vehicles = $delivery_notes->pluck('vehicle')->unique()->values();
         $query = WareHouseFGExport::whereIn('delivery_note_id', $delivery_notes->pluck('id')->toArray());
@@ -4280,63 +4283,115 @@ class ApiController extends AdminController
                 $q->where('vehicle_id', $request->vehicle_id);
             });
         }
-        $fg_exports = $query->orderBy('created_at', 'DESC')->with(['lsxpallets'])->with('delivery_note')->get()->sortBy('delivery_note_id', SORT_NATURAL)->values();
+        $groupedExportQuantity = (clone $query)->select('order_id', DB::raw('SUM(so_luong) as sum_so_luong'))
+        ->groupBy('order_id')
+        ->get()
+        ->mapWithKeys(function ($item) {
+            return [$item['order_id'] => (int)$item['sum_so_luong']];
+        });
+        // return $groupedExportQuantity;
+        $fg_exports = $query->orderBy('created_at', 'DESC')
+            ->with([
+                'lsxpallets.pallet',
+                'lsxpallets.locator_fg_map',
+                'delivery_note'
+            ])
+            ->get()->sortBy('delivery_note_id', SORT_NATURAL)->values();
         $data = [];
-        $lsx_array = [];
-        $test = [];
-        if (count($fg_exports) > 0) {
-            foreach ($fg_exports as $key => $fg_export) {
-                // $lsx_pallets = LSXPallet::where('order_id', $fg_export->order_id)->get();
-                // $so_luong_da_xuat = $fg_export->warehouse_fg_log->sum(function ($log) {
-                //     return $log->type === 2 ? $log->so_luong : 0;
-                // });
-                // $test[] = [$fg_export->id, $lsx_pallets, $so_luong_da_xuat];
-                // $sum_sl = 0;
-                // $sl_can_xuat = $fg_export->so_luong - $so_luong_da_xuat;
-                $fg_export->thoi_gian_xuat = date('d/m/Y H:i:s', strtotime($fg_export->ngay_xuat));
-                $fg_export->vehicle_id = $fg_export->delivery_note->vehicle_id ?? "";
-                // $fg_export->lo_sx = $fg_export->lsxpallets;
-                $fg_export->so_luong_con_lai = $fg_export->lsxpallets->sum('remain_quantity');
-                // foreach ($lsx_pallets as $lsx_pallet) {
-                //     if ($sum_sl < $sl_can_xuat) {
-                //         // if (in_array($lsx_pallet->lo_sx, $lsx_array)) {
-                //         //     continue;
-                //         // }
-                //         $lsx_array[] = $lsx_pallet->lo_sx;
-                //         $khach_hang = $lsx_pallet->customer_id ?? "";
-                //         $data[$lsx_pallet->pallet_id]['pallet_id'] = $lsx_pallet->pallet_id;
-                //         // $data[$lsx_pallet->pallet_id]['locator_id'] = $lsx_pallet->warehouseFGLog[0]->locator_id ?? "";
-                //         $data[$lsx_pallet->pallet_id]['so_luong'] = $lsx_pallet->pallet->so_luong ?? 0;
-                //         if (isset($data[$lsx_pallet->pallet_id]['so_luong_con_lai'])) {
-                //             $data[$lsx_pallet->pallet_id]['so_luong_con_lai'] += $lsx_pallet->remain_quantity;
-                //         } else {
-                //             $data[$lsx_pallet->pallet_id]['so_luong_con_lai'] = $lsx_pallet->remain_quantity;
-                //         }
-                //         $data[$lsx_pallet->pallet_id]['thoi_gian_xuat'] = date('d/m/Y H:i:s', strtotime($fg_export->ngay_xuat));
-                //         $data[$lsx_pallet->pallet_id]['khach_hang'] = $khach_hang;
-                //         $data[$lsx_pallet->pallet_id]['delivery_note_id'] = $fg_export->delivery_note_id;
-                //         $data[$lsx_pallet->pallet_id]['vehicle_id'] = $fg_export->delivery_note->vehicle_id ?? "";
-                //         $data[$lsx_pallet->pallet_id]['order_id'] = $fg_export->order_id ?? "";
-                //         if (!isset($data[$lsx_pallet->pallet_id]['lo_sx'])) $data[$lsx_pallet->pallet_id]['lo_sx'] = [];
-                //         $data[$lsx_pallet->pallet_id]['lo_sx'][] = [
-                //             'lo_sx' => $lsx_pallet->lo_sx,
-                //             'so_luong_ban_dau' => $lsx_pallet->so_luong,
-                //             'so_luong' => $lsx_pallet->remain_quantity,
-                //             'mql' => $lsx_pallet->mql,
-                //             'mdh' => $lsx_pallet->mdh,
-                //             'khach_hang' => $khach_hang,
-                //             'pallet_id' => $lsx_pallet->pallet_id,
-                //             'delivery_note_id' => $fg_export->delivery_note_id
-                //         ];
-                //         $sum_sl += $lsx_pallet->so_luong;
-                //     } else {
-                //         continue;
-                //     }
-                // }
+        $groupedQuantity = [];
+        foreach ($fg_exports as $key => $fg_export) {
+            foreach (($fg_export->lsxpallets ?? []) as $lsx_pallet) {
+                if (($groupedQuantity[$lsx_pallet->order_id] ?? 0) === 0 || (($groupedQuantity[$lsx_pallet->order_id] ?? 0) < ($groupedExportQuantity[$lsx_pallet->order_id] ?? 0))) {
+                    $lsx_array[] = $lsx_pallet->lo_sx;
+                    $khach_hang = $lsx_pallet->customer_id ?? "";
+                    if (!isset($data[$lsx_pallet->pallet_id])) {
+                        $data[$lsx_pallet->pallet_id] = [
+                            'pallet_id' => $lsx_pallet->pallet_id,
+                            'so_luong' => $lsx_pallet->pallet->so_luong ?? 0,
+                            'locator_id' => $lsx_pallet->locator_fg_map->locator_id ?? "",
+                            'customer_id' => $khach_hang,
+                            'delivery_note_id' => $fg_export->delivery_note_id,
+                            'vehicle_id' => $fg_export->delivery_note->vehicle_id ?? "",
+                            'lsx_pallets' => [],
+                        ];
+                    }
+                    if (isset($data[$lsx_pallet->pallet_id]['so_luong_con_lai'])) {
+                        $data[$lsx_pallet->pallet_id]['so_luong_con_lai'] += $lsx_pallet->remain_quantity;
+                    } else {
+                        $data[$lsx_pallet->pallet_id]['so_luong_con_lai'] = $lsx_pallet->remain_quantity;
+                    }
+                    if (!isset($data[$lsx_pallet->pallet_id]['lsx_pallets'])) {
+                        $data[$lsx_pallet->pallet_id]['lsx_pallets'] = [];
+                    }
+                    $data[$lsx_pallet->pallet_id]['lsx_pallets'][] = array_merge(['delivery_note_id' => $fg_export->delivery_note_id], $lsx_pallet->toArray());
+                    if(!isset($groupedQuantity[$lsx_pallet->order_id])){
+                        $groupedQuantity[$lsx_pallet->order_id] = $lsx_pallet->so_luong;
+                    }else{
+                        $groupedQuantity[$lsx_pallet->order_id] += $lsx_pallet->so_luong;
+                    }
+                } else {
+                    continue;
+                }
             }
         }
+        // return $groupedQuantity;
+        // $data = [];
+        // $lsx_array = [];
+        // $test = [];
+        // if (count($fg_exports) > 0) {
+        //     foreach ($fg_exports as $key => $fg_export) {
+        //         $fg_export->so_luong_da_xuat = $fg_export->warehouse_fg_log->sum('so_luong');
+        //         // $lsx_pallets = LSXPallet::where('order_id', $fg_export->order_id)->get();
+        //         // $so_luong_da_xuat = $fg_export->warehouse_fg_log->sum(function ($log) {
+        //         //     return $log->type === 2 ? $log->so_luong : 0;
+        //         // });
+        //         // $test[] = [$fg_export->id, $lsx_pallets, $so_luong_da_xuat];
+        //         // $sum_sl = 0;
+        //         // $sl_can_xuat = $fg_export->so_luong - $so_luong_da_xuat;
+        //         $fg_export->thoi_gian_xuat = date('d/m/Y H:i:s', strtotime($fg_export->ngay_xuat));
+        //         $fg_export->vehicle_id = $fg_export->delivery_note->vehicle_id ?? "";
+        //         // $fg_export->lo_sx = $fg_export->lsxpallets;
+        //         $fg_export->so_luong_con_lai = $fg_export->lsxpallets->sum('remain_quantity');
+        //         // foreach ($lsx_pallets as $lsx_pallet) {
+        //         //     if ($sum_sl < $sl_can_xuat) {
+        //         //         // if (in_array($lsx_pallet->lo_sx, $lsx_array)) {
+        //         //         //     continue;
+        //         //         // }
+        //         //         $lsx_array[] = $lsx_pallet->lo_sx;
+        //         //         $khach_hang = $lsx_pallet->customer_id ?? "";
+        //         //         $data[$lsx_pallet->pallet_id]['pallet_id'] = $lsx_pallet->pallet_id;
+        //         //         // $data[$lsx_pallet->pallet_id]['locator_id'] = $lsx_pallet->warehouseFGLog[0]->locator_id ?? "";
+        //         //         $data[$lsx_pallet->pallet_id]['so_luong'] = $lsx_pallet->pallet->so_luong ?? 0;
+        //         //         if (isset($data[$lsx_pallet->pallet_id]['so_luong_con_lai'])) {
+        //         //             $data[$lsx_pallet->pallet_id]['so_luong_con_lai'] += $lsx_pallet->remain_quantity;
+        //         //         } else {
+        //         //             $data[$lsx_pallet->pallet_id]['so_luong_con_lai'] = $lsx_pallet->remain_quantity;
+        //         //         }
+        //         //         $data[$lsx_pallet->pallet_id]['thoi_gian_xuat'] = date('d/m/Y H:i:s', strtotime($fg_export->ngay_xuat));
+        //         //         $data[$lsx_pallet->pallet_id]['khach_hang'] = $khach_hang;
+        //         //         $data[$lsx_pallet->pallet_id]['delivery_note_id'] = $fg_export->delivery_note_id;
+        //         //         $data[$lsx_pallet->pallet_id]['vehicle_id'] = $fg_export->delivery_note->vehicle_id ?? "";
+        //         //         $data[$lsx_pallet->pallet_id]['order_id'] = $fg_export->order_id ?? "";
+        //         //         if (!isset($data[$lsx_pallet->pallet_id]['lo_sx'])) $data[$lsx_pallet->pallet_id]['lo_sx'] = [];
+        //         //         $data[$lsx_pallet->pallet_id]['lo_sx'][] = [
+        //         //             'lo_sx' => $lsx_pallet->lo_sx,
+        //         //             'so_luong_ban_dau' => $lsx_pallet->so_luong,
+        //         //             'so_luong' => $lsx_pallet->remain_quantity,
+        //         //             'mql' => $lsx_pallet->mql,
+        //         //             'mdh' => $lsx_pallet->mdh,
+        //         //             'khach_hang' => $khach_hang,
+        //         //             'pallet_id' => $lsx_pallet->pallet_id,
+        //         //             'delivery_note_id' => $fg_export->delivery_note_id
+        //         //         ];
+        //         //         $sum_sl += $lsx_pallet->so_luong;
+        //         //     } else {
+        //         //         continue;
+        //         //     }
+        //         // }
+        //     }
+        // }
         // return $test;
-        return $this->success(['data' => $fg_exports, 'delivery_notes' => $delivery_notes, 'vehicles' => $vehicles]);
+        return $this->success(['data' => array_values($data), 'delivery_notes' => $delivery_notes, 'vehicles' => $vehicles]);
     }
 
     public function checkLoSXPallet(Request $request)
@@ -4364,28 +4419,27 @@ class ApiController extends AdminController
             DB::beginTransaction();
             foreach ($input as $lo) {
                 $lsx_pallet = LSXPallet::where('pallet_id', $lo['pallet_id'])->where('lo_sx', $lo['lo_sx'])->first();
-                if ($lsx_pallet->remain_quantity < $lo['so_luong']) {
+                if (!$lsx_pallet) {
+                    continue;
+                }
+                if ($lsx_pallet->remain_quantity <= 0 && $lsx_pallet->status == LSXPallet::EXPORTED) {
+                    return $this->failure('', 'Đã xuất kho');
+                }
+                if ($lsx_pallet->remain_quantity < $lo['remain_quantity']) {
                     return $this->failure('', 'Số lượng còn lại của lô ' . $lo['lo_sx'] . ' không đủ');
                 }
                 $inp['created_by'] = $request->user()->id;
                 $inp['locator_id'] = (count($lsx_pallet->warehouseFGLog) > 0 ? $lsx_pallet->warehouseFGLog[0]->locator_id : "") ?? $vi_tri;
-                $inp['so_luong'] = $lo['so_luong'];
+                $inp['so_luong'] = $lo['remain_quantity'];
                 $inp['lo_sx'] = $lo['lo_sx'];
                 $inp['pallet_id'] = $lo['pallet_id'];
                 $inp['type'] = 2;
                 $inp['order_id'] = $lsx_pallet->order_id;
                 $inp['delivery_note_id'] = $lo['delivery_note_id'];
                 $inp['lsx_pallet_id'] = $lsx_pallet->id;
-                $log = WarehouseFGLog::where($inp)->get();
-                if (!$lsx_pallet->remain_quantity) {
-                    return $this->failure('', 'Đã xuất kho');
-                } else {
-                    WarehouseFGLog::create($inp);
-                }
-                if ($lsx_pallet) {
-                    $remain = ($lsx_pallet->remain_quantity - $lo['so_luong']);
-                    $lsx_pallet->update(['remain_quantity' => $remain > 0 ? $remain : 0, 'status' => LSXPallet::EXPORTED]);
-                }
+                WarehouseFGLog::create($inp);
+                $remain = ($lsx_pallet->remain_quantity - $lo['remain_quantity']);
+                $lsx_pallet->update(['remain_quantity' => $remain > 0 ? $remain : 0, 'status' => LSXPallet::EXPORTED]);
             }
             $pallet_quantity = LSXPallet::where('pallet_id', $input[0]['pallet_id'])->sum('remain_quantity');
             if (!$pallet_quantity) {
@@ -5993,21 +6047,21 @@ class ApiController extends AdminController
         $orders = [];
         // Lấy danh sách order_id đã có trong GroupPlanOrder để loại trừ
         $excludedOrderIds = GroupPlanOrder::pluck('order_id')->toArray();
-        
+
         switch ($line_id) {
             case Line::LINE_SONG:
             case Line::LINE_XA_LOT:
                 // Thêm điều kiện ngày tháng nếu có
                 if (isset($request->start_date) && isset($request->end_date)) {
                     $query->whereDate('han_giao_sx', '>=', date('Y-m-d', strtotime($request->start_date)))
-                          ->whereDate('han_giao_sx', '<=', date('Y-m-d', strtotime($request->end_date)));
+                        ->whereDate('han_giao_sx', '<=', date('Y-m-d', strtotime($request->end_date)));
                 }
-                
+
                 // Loại trừ các order đã có trong GroupPlanOrder và chỉ lấy những order có buyer
                 $query->whereNotNull(['dai', 'rong'])
-                      ->whereNotIn('id', $excludedOrderIds)
-                      ->has('buyer');
-                
+                    ->whereNotIn('id', $excludedOrderIds)
+                    ->has('buyer');
+
                 break;
             default:
                 $plans = ProductionPlan::whereDate('ngay_sx', '>=', date('Y-m-d', strtotime($request->start_date)))->whereDate('ngay_sx', '<=', date('Y-m-d', strtotime($request->end_date)))
@@ -6024,7 +6078,7 @@ class ApiController extends AdminController
                 break;
         }
         $count = $query->count();
-        if(isset($request->page) && isset($request->pageSize)){
+        if (isset($request->page) && isset($request->pageSize)) {
             $query->offset(($request->page - 1) * $request->pageSize)->limit($request->pageSize);
         }
         $orders = $query->with('buyer')->get();
@@ -8246,15 +8300,15 @@ class ApiController extends AdminController
             $ngoai_quan = array_unique(array_column(array_merge(...$ngoai_quan), 'id'));
             $tinh_nang = TestCriteria::whereIn('id', $tinh_nang)->orderBy('id')->get();
             $ngoai_quan = TestCriteria::whereIn('id', $ngoai_quan)->orderBy('id')->get();
-            
+
             if (count($tinh_nang) === 0) {
                 $defaultHeader['Tính năng'] = [''];
-            }else {
+            } else {
                 $defaultHeader['Tính năng'] = $tinh_nang->pluck('name')->toArray();
             }
             if (count($ngoai_quan) === 0) {
                 $defaultHeader['Ngoại quan'] = [''];
-            }else {
+            } else {
                 $defaultHeader['Ngoại quan'] = $ngoai_quan->pluck('name')->toArray();
             }
             foreach ($infos as $key => $item) {
@@ -8278,12 +8332,12 @@ class ApiController extends AdminController
                 $row['Phán định'] = $item->phan_dinh === 1 ? "OK" : ($item->phan_dinh === 2 ? "NG" : "pass");
                 if (count($tinh_nang) === 0) {
                     $row['Tính năng'] = '';
-                }else{
+                } else {
                     foreach ($tinh_nang as $test_criteria) {
                         $row[$test_criteria->name] = collect($item->qc_log->info['tinh_nang'] ?? [])->firstWhere('id', $test_criteria->id)['value'] ?? '';
                     }
                 }
-                if (count($ngoai_quan) === 0) {   
+                if (count($ngoai_quan) === 0) {
                     $row['Ngoại quan'] = '';
                 } else {
                     foreach ($ngoai_quan as $test_criteria) {
@@ -8752,20 +8806,21 @@ class ApiController extends AdminController
     {
         $input = $request->all();
         $query = $this->customQueryWarehouseFGLog($request);
-        $records = $query->with(['user', 'exportRecord.user'])->get();
+        $records = $query->with(['user', 'exportRecord.user', 'lsx_pallet'])->get();
+        return $records;
         $data = [];
         foreach ($records as $key => $record) {
             $export = $record->exportRecord;
             $obj = new stdClass;
             $obj->stt = $key + 1;
             $obj->khu_vuc = $record->locator_id ? "Khu " . ((int)substr($record->locator_id, 1, 2) ?? "") : "";
-            $obj->khach_hang = $record->order->short_name ?? "";
-            $obj->mdh = $record->order->mdh ?? "";
-            $obj->mql = $record->order->mql ?? "";
-            $obj->length = $record->order->length ?? "";
-            $obj->width = $record->order->width ?? "";
-            $obj->height = $record->order->height ?? "";
-            $obj->kich_thuoc = $record->order->kich_thuoc ?? "";
+            $obj->khach_hang = $record->lsx_pallet->customer_id ?? "";
+            $obj->mdh = $record->lsx_pallet->mdh ?? "";
+            $obj->mql = $record->lsx_pallet->mql ?? "";
+            // $obj->length = $record->lsx_pallet->order->length ?? "";
+            // $obj->width = $record->lsx_pallet->order->width ?? "";
+            // $obj->height = $record->lsx_pallet->order->height ?? "";
+            // $obj->kich_thuoc = $record->lsx_pallet->order->kich_thuoc ?? "";
             $sl_da_xuat = $export->sum('so_luong') ?? 0;
             $obj->sl_ton = $record->so_luong - $sl_da_xuat;
             $obj->so_ngay_ton = $obj->sl_ton ? $this->datediff(date('Y-m-d H:i:s'), $record->created_at) : "";
@@ -8783,6 +8838,7 @@ class ApiController extends AdminController
             $obj->lo_sx = $record->lo_sx;
             $data[] = (array)$obj;
         }
+        // return $data;
         $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $start_row = 2;
@@ -8815,10 +8871,10 @@ class ApiController extends AdminController
             'Tên KH',
             'Đơn hàng',
             'MQL',
-            'L',
-            'W',
-            'H',
-            'Kích thước',
+            // 'L',
+            // 'W',
+            // 'H',
+            // 'Kích thước',
             'Tồn kho' => [
                 'SL tồn',
                 'Số ngày tồn'

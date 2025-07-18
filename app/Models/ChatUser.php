@@ -3,6 +3,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Pivot;
 
 class ChatUser extends Pivot
@@ -15,4 +16,9 @@ class ChatUser extends Pivot
         'last_read_message_id',
         'last_read_at',
     ];
+
+    public function chat(): BelongsTo
+    {
+        return $this->belongsTo(Chat::class, 'chat_id');
+    }
 }
