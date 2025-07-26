@@ -121,12 +121,12 @@ class ChatController extends Controller
                     }
                 } else {
                     $existing = Chat::where('type', 'private')
-                    ->whereHas('participants', function($q) use ($me) {
-                        $q->where('user_id', $me);
-                    })
-                    ->withCount('participants')
-                    ->having('participants_count', '=', 1)
-                    ->first();
+                        ->whereHas('participants', function ($q) use ($me) {
+                            $q->where('user_id', $me);
+                        })
+                        ->withCount('participants')
+                        ->having('participants_count', '=', 1)
+                        ->first();
                     Log::info($existing);
                     if (isset($existing->chat)) {
                         return $existing->chat;
@@ -368,65 +368,73 @@ class ChatController extends Controller
             $data['content_json'] = json_decode($data['content_json'], true);
         }
 
-        $msg = $chat->messages()->create([
-            'chat_id'             => $data['chat_id'],
-            'sender_id'           => $request->user()->id,
-            // 'type'                => $data['type'],
-            'content_text'        => $data['content_text'] ?? null,
-            'content_json'        => $data['content_json'] ?? null,
-            'metadata'            => $data['metadata'] ?? null,
-            'reply_to_message_id' => $data['reply_to_message_id'] ?? null,
-            'send_at'             => now()->getTimestampMs(),
-        ]);
-        $message_type = 'text';
+        if (!empty($request->content_text)) {
+            $msg = $chat->messages()->create([
+                'chat_id'             => $data['chat_id'],
+                'sender_id'           => $request->user()->id,
+                // 'type'                => $data['type'],
+                'content_text'        => $data['content_text'] ?? null,
+                'content_json'        => $data['content_json'] ?? null,
+                'metadata'            => $data['metadata'] ?? null,
+                'reply_to_message_id' => $data['reply_to_message_id'] ?? null,
+                'send_at'             => now()->getTimestampMs(),
+            ]);
+
+            // Nếu có kèm link
+            if ($request->filled('links')) {
+                foreach ($request->links as $link) {
+                    $msg->attachments()->create([
+                        'file_name' => null,
+                        'file_path' => $link,
+                        'file_type' => 'text/link',
+                        'type' => 'link'
+                    ]);
+                }
+            }
+
+            if ($request->filled('mentions')) {
+                $msg->mentions()->sync($request->mentions);
+            }
+        }
+
+
         // Nếu có file upload
         if ($request->hasFile('files')) {
             foreach ($request->file('files') as $file) {
                 // lưu file, ví dụ: storage/app/public/chat_images
                 $path = $file->store('chat_files', 'public');
-
+                if (str_contains($file->getMimeType(), 'image/')) {
+                    $type = 'image';
+                } else {
+                    $type = 'file';
+                }
+                $msg = $chat->messages()->create([
+                    'chat_id'             => $data['chat_id'],
+                    'sender_id'           => $request->user()->id,
+                    // 'type'                => $data['type'],
+                    'content_text'        => $data['content_text'] ?? null,
+                    'content_json'        => $data['content_json'] ?? null,
+                    'metadata'            => $data['metadata'] ?? null,
+                    'reply_to_message_id' => $data['reply_to_message_id'] ?? null,
+                    'send_at'             => now()->getTimestampMs(),
+                ]);
                 // tạo bản ghi attachment
                 $msg->attachments()->create([
                     'file_path' => $path,
                     'file_name' => $file->getClientOriginalName(),
                     'file_size' => $file->getSize(),
                     'file_type' => $file->getMimeType(),
+                    'type' => $type,
                 ]);
             }
-
-            if (str_contains($file->getMimeType(), 'image/')) {
-                $message_type = 'image';
-            } else {
-                $message_type = 'file';
-            }
-        }
-
-        $msg->type = $message_type;
-        $msg->save();
-
-        // Nếu có kèm link
-        if ($request->filled('links')) {
-            foreach ($request->links as $link) {
-                $msg->attachments()->create([
-                    'file_name' => null,
-                    'file_path' => $link,
-                    'file_type' => 'text/link',
-                ]);
-            }
-        }
-
-        if ($request->filled('mentions')) {
-            $msg->mentions()->sync($request->mentions);
         }
 
         // Load relationships before broadcasting
-        $msg->load(['sender:id,name,avatar,username', 'replyTo.sender:id,name,username', 'attachments', 'mentions']);
-        broadcast(new MessageSent($msg))->toOthers();
-        // foreach ($chat->participants as $user) {
-        //     if ($user->id === $request->user()->id) continue;
-        //     // $user->notify(new NewMessageNotification($msg));
-        // }
-        return $this->success($msg);
+        if (isset($msg)) {
+            $msg->load(['sender:id,name,avatar,username', 'replyTo.sender:id,name,username', 'attachments', 'mentions']);
+            broadcast(new MessageSent($msg))->toOthers();
+        }
+        return $this->success($msg ?? null);
     }
 
     public function recallMessage(Request $request, $chat_id, $message_id)
