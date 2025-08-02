@@ -15,6 +15,7 @@ class ChatUser extends Pivot
         'user_id',
         'last_read_message_id',
         'last_read_at',
+        'muted',
     ];
 
     public function chat(): BelongsTo
