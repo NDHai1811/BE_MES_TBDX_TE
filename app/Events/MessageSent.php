@@ -15,7 +15,7 @@ use Illuminate\Support\Str;
 
 class MessageSent implements ShouldBroadcast
 {
-    use Dispatchable, SerializesModels;
+    use Dispatchable, SerializesModels, InteractsWithSockets;
 
     public $message;
 
