@@ -15,7 +15,7 @@ use Illuminate\Support\Str;
 
 class MessageSent implements ShouldBroadcast
 {
-    use Dispatchable, SerializesModels, InteractsWithSockets;
+    use Dispatchable, SerializesModels;
 
     public $message;
 
@@ -31,7 +31,6 @@ class MessageSent implements ShouldBroadcast
         Log::info($this->message->chat->participants->toArray());
         Log::info(collect($this->message->chat->participants)
         ->filter(fn($user) => $user->id !== $this->message->sender_id) // Loại trừ người gửi nếu muốn
-        ->map(fn ($user) => new PrivateChannel('user.' . $user->id))
         ->all());
         return collect($this->message->chat->participants)
         ->filter(fn($user) => $user->id !== $this->message->sender_id) // Loại trừ người gửi nếu muốn

@@ -508,9 +508,8 @@ class ChatController extends Controller
 
             // Load relationships before broadcasting
             if (isset($msg)) {
-                Log::info($msg->chat->participants->toArray());
                 $msg->load(['sender:id,name,avatar,username', 'replyTo.sender:id,name,username', 'replyTo.attachments', 'attachments', 'mentions', 'chat']);
-                broadcast(new MessageSent($msg))->toOthers();
+                broadcast(new MessageSent($msg));
             }
             // foreach ($chat->participants as $user) {
             //     if ($user->id === $request->user()->id) continue;
