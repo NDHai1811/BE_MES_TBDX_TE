@@ -188,7 +188,20 @@ class ChatController extends Controller
 
         if (isset($request->members) && $chat->type === 'group') {
             $members = array_unique(array_merge([$me], $data['members']));
+            
+            // Lấy danh sách thành viên hiện tại
+            $currentMembers = $chat->participants;
+            
+            // Tìm thành viên mới (chưa có trong nhóm)
+            $newMembers = array_diff($members, $currentMembers->pluck('id')->toArray());
+            
+            // Sync tất cả thành viên
             $chat->participants()->sync($members);
+            
+            // Cập nhật last_read_message_id cho thành viên mới
+            if (!empty($newMembers)) {
+                $this->addMembersWithLastReadMessage($chat, $newMembers);
+            }
         }
 
         // Phát event update chat list
@@ -227,8 +240,67 @@ class ChatController extends Controller
             return $this->failure($chat_id, 'Không tìm thấy dữ liệu');
         }
         $chat->participants()->detach($request->user()->id);
+        $chat->load([
+            'participants:id,name,avatar,username',
+            'lastMessage.sender:id,name,avatar,username',
+            'creator:id,name,avatar,username'
+        ]);
         broadcast(new ChatUpdated($chat))->toOthers();
-        return $this->success($chat, 'Đã rời khỏi nhóm');
+        return $this->success($chat, 'Đã rời khỏi cuộc trò chuyện');
+    }
+
+    /**
+     * POST /api/chats/{chat}/rejoin
+     * Tham gia lại nhóm chat (cho user đã rời khỏi nhóm)
+     */
+    public function rejoin(Request $request, $chat_id)
+    {
+        $chat = Chat::find($chat_id);
+        if (!$chat) {
+            return $this->failure($chat_id, 'Không tìm thấy dữ liệu');
+        }
+
+        $userId = $request->user()->id;
+        
+        // Kiểm tra xem user đã là thành viên chưa
+        $isMember = $chat->participants()->where('user_id', $userId)->exists();
+        if ($isMember) {
+            return $this->failure([], 'Bạn đã là thành viên của nhóm này');
+        }
+
+        // Thêm user vào nhóm với last_read_message_id là tin nhắn mới nhất
+        $this->addMembersWithLastReadMessage($chat, [$userId]);
+
+        $chat->load([
+            'participants:id,name,avatar,username',
+            'lastMessage.sender:id,name,avatar,username',
+            'creator:id,name,avatar,username'
+        ]);
+        
+        broadcast(new ChatMemberAdded($chat->id, $userId))->toOthers();
+        broadcast(new ChatUpdated($chat))->toOthers();
+        
+        return $this->success($chat, 'Đã tham gia lại cuộc trò chuyện');
+    }
+
+    /**
+     * Helper method để thêm thành viên với last_read_message_id
+     */
+    private function addMembersWithLastReadMessage(Chat $chat, array $userIds)
+    {
+        // Lấy tin nhắn mới nhất của chat
+        $lastMessage = $chat->lastMessage;
+        $lastMessageId = $lastMessage ? $lastMessage->id : null;
+        
+        // Thêm thành viên với last_read_message_id
+        foreach ($userIds as $userId) {
+            $chat->participants()->syncWithoutDetaching([
+                $userId => [
+                    'last_read_message_id' => $lastMessageId,
+                    'last_read_at' => $lastMessageId ? now() : null,
+                ]
+            ]);
+        }
     }
 
     /**
@@ -249,13 +321,15 @@ class ChatController extends Controller
         }
 
         $ids = $validator->validated()['user_ids'];
-        $chat->participants()->syncWithoutDetaching($ids);
+        
+        // Sử dụng helper method để thêm thành viên với last_read_message_id
+        $this->addMembersWithLastReadMessage($chat, $ids);
 
         foreach ($ids as $uid) {
             broadcast(new ChatMemberAdded($chat->id, $uid))->toOthers();
         }
 
-        return $this->success([], 'Đã xoá');
+        return $this->success([], 'Đã thêm thành viên');
     }
 
     /**
